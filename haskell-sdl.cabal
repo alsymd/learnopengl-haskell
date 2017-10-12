@@ -20,4 +20,7 @@ executable haskell-sdl
   build-depends:       base >= 4.7 && < 5,
                        sdl2,
                        OpenGL,
-                       StateVar
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring
