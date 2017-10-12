@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- This program is free software. It comes without any warranty, to
+--      * the extent permitted by applicable law. You can redistribute it
+--      * and/or modify it under the terms of the Do What The Fuck You Want
+--      * To Public License, Version 2, as published by Sam Hocevar. See
+--      * http://www.wtfpl.net/ for more details.
 module Main where
 
 import Control.Applicative
@@ -20,7 +25,8 @@ gameLoop window = do
   case quit of
     True -> pure ()
     False ->
-      S.clear [ColorBuffer, DepthBuffer] >> drawArrays Triangles 0 3 >> glSwapWindow window >>
+      S.clear [ColorBuffer, DepthBuffer] >> drawArrays Triangles 0 3 >>
+      glSwapWindow window >>
       gameLoop window
 
 vertices :: V.Vector GLfloat
@@ -35,9 +41,7 @@ main = do
       defaultWindow {windowOpenGL = Just defaultOpenGL {glProfile = profile}}
   glCreateContext window
   vao <- (genObjectName :: IO VertexArrayObject)
-
   bindVertexArrayObject $= Just vao
-
   vbo <- (genObjectName :: IO BufferObject)
   S.bindBuffer S.ArrayBuffer $= Just vbo
   V.unsafeWith vertices $ \ptr ->
@@ -49,15 +53,11 @@ main = do
   vsSource <- BS.readFile "shader.vert"
   shaderSourceBS vs $= vsSource
   compileShader vs
-
   putStrLn =<< shaderInfoLog vs
-
   fs <- S.createShader FragmentShader
   ($=) (shaderSourceBS fs) =<< BS.readFile "shader.frag"
   compileShader fs
-
   putStrLn =<< shaderInfoLog fs
-
   program <- createProgram
   attachShader program vs
   attachShader program fs
