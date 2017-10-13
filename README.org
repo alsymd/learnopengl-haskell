@@ -1,0 +1,18 @@
+* haskell-opengl
+** About
+A haskell port of examples from [[learnopengl.com]].
+
+SDL is used instead of GLFW because of personal preference.
+
+FRP techniques might be applied for managing time-varying values but a
+non-FRP version written completely in plain old monad will also be
+provided in the future.
+
+** Current progress
+- Hello, Triangle
+
+** Build
+
+#+BEGIN_EXAMPLE
+  $ stack build
+#+END_EXAMPLE
