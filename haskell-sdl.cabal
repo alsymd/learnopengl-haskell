@@ -50,3 +50,32 @@ executable shaders
                        bytestring,
                        Yampa,
                        time
+
+executable color
+  hs-source-dirs:      src
+  main-is:             color.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time
+
+executable texture
+  hs-source-dirs:      src
+  main-is:             texture.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels                                           

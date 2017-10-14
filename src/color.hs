@@ -52,13 +52,12 @@ sense timeRef _ = do
 initialize :: IO InputEvent
 initialize = pure Cont
 
-actuate :: Window -> UniformLocation -> Bool -> (Float, InputEvent) -> IO Bool
-actuate window loc _ (t, s) =
+actuate :: Window ->  Bool -> (Float, InputEvent) -> IO Bool
+actuate window  _ (t, s) =
   if s == Quit
     then pure True
     else S.clear [ColorBuffer, DepthBuffer] *>
-         drawElements Triangles 6 UnsignedInt (intPtrToPtr 3) *>
-         (uniform loc $= (Color4 0 t 0 0 :: Color4 GLfloat)) *>
+         drawElements Triangles 3 UnsignedInt (intPtrToPtr 3) *>
          glSwapWindow window *>
          pure False
 
@@ -66,10 +65,12 @@ actuate window loc _ (t, s) =
 
 vertices :: V.Vector GLfloat
 vertices =
-  V.fromList [0.5, 0.5, 0.0, 0.5, -0.5, 0.0, -0.5, -0.5, 0.0, -0.5, 0.5, 0.0]
+  V.fromList [0.5,-0.5,0.0, 1.0,0.0,0.0
+             ,-0.5,-0.5,0.0,0.0,1.0,0.0,
+             0.0,0.5,0.0, 0.0,0.0,1.0]
 
 indices :: V.Vector GLuint
-indices = V.fromList [0, 1, 3, 1, 2, 3]
+indices = V.fromList [0, 1, 2]
 
 loadShaderFromFile shaderType filePath =
   S.createShader shaderType >>= \s ->
@@ -96,7 +97,7 @@ main = do
   initializeAll
   window <-
     createWindow
-      "Uniform Color"
+      "Color"
       defaultWindow {windowOpenGL = Just defaultOpenGL {glProfile = profile}}
   glCreateContext window
   hPutStrLn stderr =<< show <$> get maxVertexAttribs
@@ -108,8 +109,8 @@ main = do
   bindBuffer ElementArrayBuffer $= Just ebo
   bufferDataWithVector vertices ArrayBuffer StaticDraw
   bufferDataWithVector indices ElementArrayBuffer StaticDraw
-  vs <- loadShaderFromFile VertexShader "shaders.vert"
-  fs <- loadShaderFromFile FragmentShader "shaders.frag"
+  vs <- loadShaderFromFile VertexShader "color.vert"
+  fs <- loadShaderFromFile FragmentShader "color.frag"
   program <- createProgramWith [vs, fs]
   deleteObjectName vs
   deleteObjectName fs
@@ -119,12 +120,15 @@ main = do
     , VertexArrayDescriptor
         3
         Float
-        (fromIntegral $ 3 * sizeOf (undefined :: GLfloat))
+        (fromIntegral $ 6 * sizeOf (undefined :: GLfloat))
         (intPtrToPtr 0))
+  vertexAttribPointer (AttribLocation 1) $=
+    ( ToFloat
+    , VertexArrayDescriptor 3 Float (fromIntegral $ 6*sizeOf (undefined::GLfloat)) (intPtrToPtr (fromIntegral $ 3*sizeOf (undefined::GLfloat))))
   vertexAttribArray (AttribLocation 0) $= Enabled
+  vertexAttribArray (AttribLocation 1) $= Enabled
 
-  loc <- get $ uniformLocation program "ourColor"
 
   clearColor $= S.Color4 0.4 0.8 1.0 1.0
   timeRef <- newIORef =<< getCurrentTime
-  Y.reactimate Main.initialize (sense timeRef) (actuate window loc) sig
+  Y.reactimate Main.initialize (sense timeRef) (actuate window) sig

@@ -25,6 +25,8 @@ import GHC.Float
 import Graphics.Rendering.OpenGL as S
 import SDL
 import System.IO
+import Codec.Picture
+import Codec.Picture.Types
 
 profile :: Profile
 profile = Core Normal 3 3
@@ -52,13 +54,12 @@ sense timeRef _ = do
 initialize :: IO InputEvent
 initialize = pure Cont
 
-actuate :: Window -> UniformLocation -> Bool -> (Float, InputEvent) -> IO Bool
-actuate window loc _ (t, s) =
+actuate :: Window ->  Bool -> (Float, InputEvent) -> IO Bool
+actuate window  _ (t, s) =
   if s == Quit
     then pure True
     else S.clear [ColorBuffer, DepthBuffer] *>
          drawElements Triangles 6 UnsignedInt (intPtrToPtr 3) *>
-         (uniform loc $= (Color4 0 t 0 0 :: Color4 GLfloat)) *>
          glSwapWindow window *>
          pure False
 
@@ -66,7 +67,10 @@ actuate window loc _ (t, s) =
 
 vertices :: V.Vector GLfloat
 vertices =
-  V.fromList [0.5, 0.5, 0.0, 0.5, -0.5, 0.0, -0.5, -0.5, 0.0, -0.5, 0.5, 0.0]
+  V.fromList [0.5,0.5,0.0, 1.0,0.0,0.0, 1.0,1.0
+             ,0.5,-0.5,0.0 ,0.0,1.0,0.0, 1.0,0.0
+             ,-0.5,-0.5,0.0, 0.0,0.0,1.0, 0.0,0.0
+             ,-0.5,0.5,0.0, 1.0,1.0,0.0, 0.0,1.0]
 
 indices :: V.Vector GLuint
 indices = V.fromList [0, 1, 3, 1, 2, 3]
@@ -91,15 +95,40 @@ bufferDataWithVector v target usage =
     , castPtr ptr
     , usage)
 
+createTextureFromFile :: FilePath -> IO (Either String TextureObject)
+createTextureFromFile filePath = do
+  ei <- readImage filePath
+  case ei of
+    Left str -> pure . Left $ str
+    Right dynamicImage -> do
+      case dynamicImage of
+        ImageYCbCr8 jimg -> do
+         let img = convertImage jimg :: Image PixelRGB8
+         tex  <- (genObjectName :: IO TextureObject )
+         textureBinding Texture2D $= Just tex
+         V.unsafeWith (imageData img) $ texImage2D Texture2D NoProxy 0 RGB8 (TextureSize2D (fromIntegral . imageWidth $ img) (fromIntegral . Codec.Picture.imageHeight $ img)) 0 . PixelData RGB UnsignedByte . castPtr
+         generateMipmap' Texture2D
+         textureFilter Texture2D $= ((Linear', Just Linear'),Linear')
+         textureBinding Texture2D $= Nothing
+         pure $ Right tex
+        otherwise -> pure . Left $ "Unrecognized format"
+
+
 main :: IO ()
 main = do
+  -- Initialize SDL
   initializeAll
   window <-
     createWindow
-      "Uniform Color"
+      "Color"
       defaultWindow {windowOpenGL = Just defaultOpenGL {glProfile = profile}}
+  -- Create OpenGL Context
   glCreateContext window
+
+  -- Print max vertex attributes available
   hPutStrLn stderr =<< show <$> get maxVertexAttribs
+
+  -- vao,vbo,ebo
   vao <- (genObjectName :: IO VertexArrayObject)
   bindVertexArrayObject $= Just vao
   vbo <- (genObjectName :: IO BufferObject)
@@ -108,23 +137,44 @@ main = do
   bindBuffer ElementArrayBuffer $= Just ebo
   bufferDataWithVector vertices ArrayBuffer StaticDraw
   bufferDataWithVector indices ElementArrayBuffer StaticDraw
-  vs <- loadShaderFromFile VertexShader "shaders.vert"
-  fs <- loadShaderFromFile FragmentShader "shaders.frag"
-  program <- createProgramWith [vs, fs]
+
+
+  -- Load shaders
+  vs <- loadShaderFromFile VertexShader "texture.vert"
+  fs <- loadShaderFromFile FragmentShader "texture.frag"
+  program <- createProgramWith [vs, fs]  
   deleteObjectName vs
   deleteObjectName fs
   currentProgram $= Just program
+
+  -- Specify vertex attributes
   vertexAttribPointer (AttribLocation 0) $=
     ( ToFloat
     , VertexArrayDescriptor
         3
         Float
-        (fromIntegral $ 3 * sizeOf (undefined :: GLfloat))
+        (fromIntegral $ 8 * sizeOf (undefined :: GLfloat))
         (intPtrToPtr 0))
+  vertexAttribPointer (AttribLocation 1) $=
+    ( ToFloat
+    , VertexArrayDescriptor 3 Float (fromIntegral $ 8*sizeOf (undefined::GLfloat)) (intPtrToPtr (fromIntegral $ 3*sizeOf (undefined::GLfloat))))
+  vertexAttribPointer (AttribLocation 2) $=
+    ( ToFloat
+    , VertexArrayDescriptor 2 Float (fromIntegral $ 8*sizeOf (undefined::GLfloat)) (intPtrToPtr (fromIntegral $ 6*sizeOf (undefined::GLfloat))))
   vertexAttribArray (AttribLocation 0) $= Enabled
+  vertexAttribArray (AttribLocation 1) $= Enabled
+  vertexAttribArray (AttribLocation 2) $= Enabled
 
-  loc <- get $ uniformLocation program "ourColor"
+  -- Load texture
+  Right texture0 <- createTextureFromFile "container.jpg"
 
+  -- Print out error message
+  traverse_ (putStrLn.show) <$> (get errors)
+
+  -- Bind texture
+  textureBinding Texture2D $= Just texture0
+
+  -- Set clearColor to #66ccff
   clearColor $= S.Color4 0.4 0.8 1.0 1.0
   timeRef <- newIORef =<< getCurrentTime
-  Y.reactimate Main.initialize (sense timeRef) (actuate window loc) sig
+  Y.reactimate Main.initialize (sense timeRef) (actuate window) sig
