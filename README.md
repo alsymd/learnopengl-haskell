@@ -21,13 +21,16 @@ A haskell port of examples from .
 
 SDL is used instead of GLFW because of personal preference.
 
-FRP techniques might be applied for managing time-varying values but a
+FRP techniques might be applied for managing time-varying variables but a
 non-FRP version written completely in plain old monad will also be
 provided in the future.
 
 ## Current progress<a id="sec-1-2" name="sec-1-2"></a>
 
 -   Hello, Triangle
+-   Shaders
+-   Textures
+-   Transformations
 
 ## Build<a id="sec-1-3" name="sec-1-3"></a>
 
