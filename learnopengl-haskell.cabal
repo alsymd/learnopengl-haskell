@@ -1,14 +1,14 @@
-name:                haskell-sdl
+name:                learnopengl-haskell
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/githubuser/haskell-sdl#readme
-license:             BSD3
+homepage:            https://github.com/alsymd/learnopengl-haskell#readme
+license:             WTFPL
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
-category:            Web
+author:              Yiyun Liu
+maintainer:          liuyiyun@terpmail.umd.edu
+copyright:           2017 Yiyun Liu
+category:            Graphics
 build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
@@ -78,4 +78,38 @@ executable texture
                        bytestring,
                        Yampa,
                        time,
-                       JuicyPixels                                           
+                       JuicyPixels
+
+executable textures
+  hs-source-dirs:      src
+  main-is:             textures.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra
+
+executable transformation
+  hs-source-dirs:      src
+  main-is:             transformation.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear
+                       

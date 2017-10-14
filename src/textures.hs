@@ -27,6 +27,7 @@ import GHC.Float
 import Graphics.Rendering.OpenGL as S
 import SDL
 import System.IO
+import Codec.Picture.Extra
 
 profile :: Profile
 profile = Core Normal 3 3
@@ -133,7 +134,7 @@ createTextureFromFile filePath = do
     Right dynamicImage -> do
       case dynamicImage of
         ImageYCbCr8 jimg -> do
-          let img = convertImage jimg :: Image PixelRGB8
+          let img = flipVertically . convertImage  $ jimg :: Image PixelRGB8
           tex <- (genObjectName :: IO TextureObject)
           textureBinding Texture2D $= Just tex
           V.unsafeWith (imageData img) $
@@ -147,6 +148,25 @@ createTextureFromFile filePath = do
                  (fromIntegral . Codec.Picture.imageHeight $ img))
               0 .
             PixelData RGB UnsignedByte . castPtr
+          generateMipmap' Texture2D
+          textureFilter Texture2D $= ((Linear', Just Linear'), Linear')
+          textureBinding Texture2D $= Nothing
+          pure $ Right tex
+        ImageRGBA8 jimg -> do
+          let img = flipVertically jimg
+          tex <- (genObjectName :: IO TextureObject)
+          textureBinding Texture2D $= Just tex
+          V.unsafeWith (imageData img) $
+            texImage2D
+              Texture2D
+              NoProxy
+              0
+              RGBA8
+              (TextureSize2D
+                 (fromIntegral . imageWidth $ img)
+                 (fromIntegral . Codec.Picture.imageHeight $ img))
+              0 .
+            PixelData RGBA UnsignedByte . castPtr
           generateMipmap' Texture2D
           textureFilter Texture2D $= ((Linear', Just Linear'), Linear')
           textureBinding Texture2D $= Nothing
@@ -166,6 +186,7 @@ main
   glCreateContext window
   -- Print max vertex attributes available
   hPutStrLn stderr =<< show <$> get maxVertexAttribs
+  hPutStrLn stderr =<< show <$> get maxTextureUnit
   -- vao,vbo,ebo
   vao <- (genObjectName :: IO VertexArrayObject)
   bindVertexArrayObject $= Just vao
@@ -176,8 +197,8 @@ main
   bufferDataWithVector vertices ArrayBuffer StaticDraw
   bufferDataWithVector indices ElementArrayBuffer StaticDraw
   -- Load shaders
-  vs <- loadShaderFromFile VertexShader "texture.vert"
-  fs <- loadShaderFromFile FragmentShader "texture.frag"
+  vs <- loadShaderFromFile VertexShader "textures.vert"
+  fs <- loadShaderFromFile FragmentShader "textures.frag"
   program <- createProgramWith [vs, fs]
   deleteObjectName vs
   deleteObjectName fs
@@ -209,10 +230,22 @@ main
   vertexAttribArray (AttribLocation 2) $= Enabled
   -- Load texture
   Right texture0 <- createTextureFromFile "container.jpg"
+  Right texture1 <- createTextureFromFile "awesomeface.png"
   -- Print out error message
   traverse_ (putStrLn . show) <$> (get errors)
   -- Bind texture
   textureBinding Texture2D $= Just texture0
+  activeTexture $= TextureUnit 1
+  textureBinding Texture2D $= Just texture1
+
+  -- Set texture uniform
+  loc0 <- get . uniformLocation program $ "texture1"
+  loc1 <- get . uniformLocation program $ "texture2"
+
+  uniform loc0 $= TextureUnit 0
+  uniform loc1 $= TextureUnit 1
+
+
   -- Set clearColor to #66ccff
   clearColor $= S.Color4 0.4 0.8 1.0 1.0
   timeRef <- newIORef =<< getCurrentTime
