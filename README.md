@@ -17,7 +17,7 @@
 
 ## About<a id="sec-1-1" name="sec-1-1"></a>
 
-A haskell port of examples from .
+A haskell port of examples from learnopengl.com.
 
 SDL is used instead of GLFW because of personal preference.
 
@@ -28,9 +28,20 @@ provided in the future.
 ## Current progress<a id="sec-1-2" name="sec-1-2"></a>
 
 -   Hello, Triangle
+    -   triangle
+    -   rectangle
 -   Shaders
+    -   color
+    -   shaders
 -   Textures
+    -   texture
+    -   textures
 -   Transformations
+    -   rotation
+    -   transformation
+-   Coordinate Systems
+    -   coordinateSystem
+    -   coordinateSystemDepth
 
 ## Build<a id="sec-1-3" name="sec-1-3"></a>
 

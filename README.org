@@ -1,6 +1,6 @@
 * haskell-opengl
 ** About
-A haskell port of examples from [[learnopengl.com]].
+A haskell port of examples from learnopengl.com.
 
 SDL is used instead of GLFW because of personal preference.
 
@@ -11,10 +11,20 @@ provided in the future.
 
 ** Current progress
 - Hello, Triangle
+  - triangle
+  - rectangle
 - Shaders
+  - color
+  - shaders
 - Textures
+  - texture
+  - textures
 - Transformations
-
+  - rotation
+  - transformation
+- Coordinate Systems
+  - coordinateSystem
+  - coordinateSystemDepth
 
 ** Build
 
