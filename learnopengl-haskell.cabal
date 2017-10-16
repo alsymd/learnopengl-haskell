@@ -191,4 +191,21 @@ executable cameraKeyboardDt
                        JuicyPixels,
                        JuicyPixels-extra,
                        linear
-                       
+
+executable cameraMousezoom
+  hs-source-dirs:      src
+  main-is:             cameraMousezoom.hs
+  ghc-options:         -dynamic
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear                       

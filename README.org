@@ -25,6 +25,10 @@ provided in the future.
 - Coordinate Systems
   - coordinateSystem
   - coordinateSystemDepth
+- Camera
+  - cameraCircle
+  - cameraKeyboardDt
+  - cameraMousezoom
 
 ** Build
 

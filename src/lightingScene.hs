@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE Arrows #-}
 -- This program is free software. It comes without any warranty, to
 -- the extent permitted by applicable law. You can redistribute it
 -- and/or modify it under the terms of the Do What The Fuck You Want
@@ -27,6 +27,7 @@ import Foreign.Storable
 import GHC.Float
 import Graphics.Rendering.OpenGL hiding (perspective,lookAt,Vector3,Front,Back,Left,Right,normalize)
 import SDL hiding(perspective,clear,normalize)
+import SDL.Input.Mouse
 import System.IO
 import Codec.Picture.Extra
 import Linear.Quaternion
@@ -45,57 +46,68 @@ data InputEvent
   | RightD
   deriving (Show, Eq)
 
+
+crossV :: RealFloat a => Vector3 a -> Vector3 a -> Vector3 a
+crossV v3 v3' = case (vector3XYZ v3,vector3XYZ v3') of
+                  ((a,b,c),(d,e,f)) -> vector3 (b*f-c*e) (c*d-a*f) (a*e-b*d)
+
 data OutputEvent
   = QuitG
   deriving (Show, Eq)
 
-newtype ObjectState = ObjectState (Vector3 Float)
+data ObjectState = ObjectState {pos::Vector3 Float, direct :: Vector3 Float}
+newtype CursorOffset = CursorOffset (Float,Float)
 
+toFPSVec v3 = case vector3XYZ v3 of
+                (x,y,z) -> vector3 x 0 z
 
-sig :: Y.SF [InputEvent] (Float, (Maybe OutputEvent, ObjectState))
-sig =
-  (Y.localTime Y.>>> Y.arr double2Float)  Y.&&&
-  Y.arr (\events -> if any (==QuitP) events then Just QuitG else Nothing) Y.&&&
-  (Y.arr ((\v -> if (v==Y.zeroVector) then v else cameraSpeed Y.*^ Y.normalize v) . foldr f (vector3 0 0 0)) Y.>>> Y.integral Y.>>> Y.arr ObjectState)
-  where e2v :: InputEvent -> Vector3 Float
-        e2v BackD = vector3 0 0 1
-        e2v FrontD = vector3 0 0 (-1)
-        e2v LeftD = vector3 (-1) 0 0
-        e2v RightD = vector3 1 0 0
-        e2v _ = vector3 0 0 0
+e2v :: Vector3 Float -> Vector3 Float -> InputEvent -> Vector3 Float
+e2v front right gi =
+  case gi of
+    BackD -> Y.negateVector front
+    FrontD -> front
+    LeftD -> Y.negateVector right
+    RightD -> right    
+    _ -> Y.zeroVector
+
+sig :: Y.SF (CursorOffset,[InputEvent]) (Float, Maybe OutputEvent, ObjectState)
+sig = proc ((CursorOffset (xOff,yOff)),gis) -> do
+    maybeQuit <- quitArr -< gis
+    yaw <- mouseArr -< xOff
+    pitch <- mouseArr -< yOff
+    let cameraFront = Y.normalize $ vector3 ((cos pitch) * (cos yaw)) (sin pitch) ((cos pitch)* (sin yaw))
+        cameraRight = Y.normalize $ crossV cameraFront cameraUp
+        pe2v = e2v cameraFront cameraRight
         f :: InputEvent -> Vector3 Float -> Vector3 Float
-        f e acc = acc Y.^+^ e2v e
+        f e acc = acc Y.^+^ pe2v e
+        moveDirection = let v = foldr f (vector3 0 0 0) gis
+                        in if v == Y.zeroVector
+                              then v
+                              else Y.normalize v
+    position <- Y.integral -< cameraSpeed Y.*^ moveDirection
+    angle <- Y.localTime -< ()
+    Y.returnA -< (double2Float angle, maybeQuit, ObjectState {pos = position, direct = cameraFront})
+  where quitArr = Y.arr $ \events -> if any (==QuitP) events then Just QuitG else Nothing
+        mouseArr = Y.arr (*mouseSensitivity) Y.>>> Y.integral
+        boundPitch pitch
+         | pitch > pi/2-0.1 = pi/2-0.1
+         | pitch < -pi/2+0.1 = -pi/2 + 0.1
+         | otherwise = pitch
+        cameraUp = vector3 0 1 0
+        
+
+mouseSensitivity :: Float          
+mouseSensitivity = 0.5
 
 
-
-cubePositions :: [V3 GLfloat]
-cubePositions = fmap (\(x,y,z) -> V3 x y z) [
-                      ( 0.0,  0.0,  0.0), 
-                      ( 2.0,  5.0, -15.0), 
-                      (-1.5, -2.2, -2.5),  
-                      (-3.8, -2.0, -12.3),  
-                      ( 2.4, -0.4, -3.5),  
-                      (-1.7,  3.0, -7.5),  
-                      ( 1.3, -2.0, -2.5),  
-                      ( 1.5,  2.0, -2.5), 
-                      ( 1.5,  0.2, -1.5), 
-                      (-1.3,  1.0, -1.5)  
-                ]
-
-angleOffsets = scanl (+) 0 [pi/9 ..]
-
-drawCubes :: M44 GLfloat -> GLfloat -> UniformLocation -> IO ()
-drawCubes view angle loc = traverse_ draw (zip cubePositions angleOffsets)
-  where draw (t,aOffset) = do
-          (toMatrix (proj!*!view !*!(model (angle+aOffset) t)) :: IO (GLmatrix GLfloat))>>= (uniform loc $=)
-          drawArrays Triangles 0 36
 
 scancodeToInputEvent ScancodeW = FrontD
 scancodeToInputEvent ScancodeS = BackD
 scancodeToInputEvent ScancodeA = LeftD
 scancodeToInputEvent ScancodeD = RightD
 
-sense timeRef _ = do
+sense  timeRef _ = do
+  P (V2 x y) <- getRelativeMouseLocation
   now <- getCurrentTime
   lastTime <- readIORef timeRef
   writeIORef timeRef now
@@ -103,12 +115,12 @@ sense timeRef _ = do
   let dt = realToFrac $ now `diffUTCTime` lastTime
   keyF <-getKeyboardState
   let events = (if quit then [QuitP] else []) ++ (fmap scancodeToInputEvent . filter keyF $ [ScancodeW, ScancodeS, ScancodeA, ScancodeD])
-  pure (dt,Just events)
+  pure (dt,Just (CursorOffset (fromIntegral x ,fromIntegral (-y)),events))
 
 
 
-initialize :: IO [InputEvent]
-initialize = pure []
+initialize :: IO (CursorOffset,[InputEvent])
+initialize = pure (curry CursorOffset 0 0,[])
 
 newtype CameraState = CameraState (V3 GLfloat)
 
@@ -116,12 +128,12 @@ toV3 :: (RealFloat a) => Vector3 a -> V3 a
 toV3 v = let (x,y,z) = vector3XYZ v
          in V3 x y z
 
-actuate :: UniformLocation -> Window -> Bool -> (Float, (Maybe OutputEvent, ObjectState)) -> IO Bool
-actuate loc window _ (t, (oe, ObjectState pos)) =
+actuate :: UniformLocation -> Window -> Bool -> (Float, Maybe OutputEvent, ObjectState) -> IO Bool
+actuate loc window _ (t, oe, ObjectState {pos = position, direct = direction}) =
   if oe == Just QuitG
     then pure True
-    else clear [ColorBuffer, DepthBuffer] *>         
-         drawCubes (view (toV3 pos) (V3 0 0 (-1)) (V3 0 1 0)) t loc *>
+    else clear [ColorBuffer, DepthBuffer] *>
+
          glSwapWindow window *>
          (traverse_ (putStrLn . show) <$> (get errors)) *>
          pure False
@@ -182,10 +194,8 @@ translationM x y z =
 
 
 cameraSpeed :: GLfloat
-cameraSpeed = 2.5
+cameraSpeed = 10
 
-cameraFront :: V3 GLfloat
-cameraFront = V3 0 0 (-1)
 
 cameraUp :: V3 GLfloat
 cameraUp = V3 0 1 0
@@ -199,8 +209,6 @@ model angle t = let r = axisAngle (V3 0.5 1 0) angle
                    in mkTransformation r t
 
 
-indices :: V.Vector GLuint
-indices = V.fromList [0, 1, 3, 1, 2, 3]
 
 loadShaderFromFile shaderType filePath =
   createShader shaderType >>= \s ->
@@ -232,6 +240,8 @@ toMatrix :: (Matrix m, MatrixComponent c) => M44 c -> IO (m c)
 toMatrix mr =
   let mc = transpose mr
   in withNewMatrix ColumnMajor (flip poke mc . castPtr)
+
+
 
 createTextureFromFile :: FilePath -> IO (Either String TextureObject)
 createTextureFromFile filePath = do
@@ -282,10 +292,13 @@ createTextureFromFile filePath = do
 
 glConfig = defaultOpenGL {glProfile = profile, glMultisampleSamples = 8}
 
+screenWidth = 1024
+screenHeight = 768
+
 windowConfig = defaultWindow
   {windowOpenGL = Just glConfig,
    windowInputGrabbed = True,
-   windowInitialSize = V2 1024 768
+   windowInitialSize = V2 screenWidth screenHeight
   }
 
 initializeSDL :: IO Window
@@ -306,22 +319,32 @@ main
   -- Print max vertex attributes available
   hPutStrLn stderr =<< show <$> get maxVertexAttribs
   hPutStrLn stderr =<< show <$> get maxTextureUnit
-  -- vao,vbo
-  vao <- (genObjectName :: IO VertexArrayObject)
-  bindVertexArrayObject $= Just vao
-  vbo <- (genObjectName :: IO BufferObject)
-  bindBuffer ArrayBuffer $= Just vbo 
+
+  
+  -- lightvao
+  lightvao <- (genObjectName :: IO VertexArrayObject)
+  bindVertexArrayObject $= Just lightvao
+  lightvbo <- (genObjectName :: IO BufferObject)
+  bindBuffer ArrayBuffer $= Just lightvbo 
   bufferDataWithVector vertices ArrayBuffer StaticDraw
-  bufferDataWithVector indices ElementArrayBuffer StaticDraw
-  -- Enable depth buffer
-  depthFunc $= Just Less
-  -- Load shaders
-  vs <- loadShaderFromFile VertexShader "cameraKeyboardDt.vert"
-  fs <- loadShaderFromFile FragmentShader "cameraKeyboardDt.frag"
-  program <- createProgramWith [vs, fs]
-  deleteObjectName vs
-  deleteObjectName fs
-  currentProgram $= Just program
+  -- Specify vertex attributes
+  vertexAttribPointer (AttribLocation 0) $=
+    ( ToFloat
+    , VertexArrayDescriptor
+        3
+        Float
+        (fromIntegral $ 5 * sizeOf (undefined :: GLfloat))
+        (intPtrToPtr 0))  -- Enable depth buffer
+  vertexAttribArray (AttribLocation 0) $= Enabled
+
+
+  
+  -- cubevao
+  cubevao <- (genObjectName :: IO VertexArrayObject)
+  bindVertexArrayObject $= Just cubevao
+  cubevbo <- (genObjectName :: IO BufferObject)
+  bindBuffer ArrayBuffer $= Just cubevbo
+  bufferDataWithVector vertices ArrayBuffer StaticDraw
   -- Specify vertex attributes
   vertexAttribPointer (AttribLocation 0) $=
     ( ToFloat
@@ -330,35 +353,32 @@ main
         Float
         (fromIntegral $ 5 * sizeOf (undefined :: GLfloat))
         (intPtrToPtr 0))
-
-  vertexAttribPointer (AttribLocation 1) $=
-    ( ToFloat
-    , VertexArrayDescriptor
-        2
-        Float
-        (fromIntegral $ 5 * sizeOf (undefined :: GLfloat))
-        (intPtrToPtr (fromIntegral $ 3 * sizeOf (undefined :: GLfloat))))
   vertexAttribArray (AttribLocation 0) $= Enabled
-  vertexAttribArray (AttribLocation 1) $= Enabled
-  -- Load texture
-  Right texture0 <- createTextureFromFile "container.jpg"
-  Right texture1 <- createTextureFromFile "awesomeface.png"
-  -- Print out error message
-  traverse_ (putStrLn . show) <$> (get errors)
-  -- Bind texture
-  textureBinding Texture2D $= Just texture0
-  activeTexture $= TextureUnit 1
-  textureBinding Texture2D $= Just texture1
-
-  -- Set texture uniform
-  loc0 <- get . uniformLocation program $ "texture1"
-  loc1 <- get . uniformLocation program $ "texture2"
-  loc2 <- get . uniformLocation program $ "transform"
 
 
-  uniform loc0 $= TextureUnit 0
-  uniform loc1 $= TextureUnit 1
+  -- Enable depth test
+  depthFunc $= Just Less
 
+  
+  -- Load shaders
+  vs <- loadShaderFromFile VertexShader "lightingScene.vert"
+  fs <- loadShaderFromFile FragmentShader "lightingScene.frag"
+  lfs <- loadShaderFromFile FragmentShader ""
+  cubeProgram <- createProgramWith [vs, fs]
+  deleteObjectName vs
+  deleteObjectName fs
+  currentProgram $= Just cubeProgram
+
+
+  -- Query uniform locations
+  loc0 <- get . uniformLocation cubeProgram $ "lightColor"
+  loc1 <- get . uniformLocation cubeProgram $ "objectColor"
+  loc2 <- get . uniformLocation cubeProgram $ "pvm"
+
+  uniform loc0 $= (Color3 1 1 1 :: Color3 GLfloat)
+  uniform loc1 $= (Color3 1 0.5 0.31 :: Color3 GLfloat)
+
+  
 
   -- Set clearColor to #66ccff
   clearColor $= Color4 0.4 0.8 1.0 1.0

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-
+{-# LANGUAGE Arrows #-}
 -- This program is free software. It comes without any warranty, to
 -- the extent permitted by applicable law. You can redistribute it
 -- and/or modify it under the terms of the Do What The Fuck You Want
@@ -27,6 +27,7 @@ import Foreign.Storable
 import GHC.Float
 import Graphics.Rendering.OpenGL hiding (perspective,lookAt,Vector3,Front,Back,Left,Right,normalize)
 import SDL hiding(perspective,clear,normalize)
+import SDL.Input.Mouse
 import System.IO
 import Codec.Picture.Extra
 import Linear.Quaternion
@@ -45,27 +46,58 @@ data InputEvent
   | RightD
   deriving (Show, Eq)
 
+
+crossV :: RealFloat a => Vector3 a -> Vector3 a -> Vector3 a
+crossV v3 v3' = case (vector3XYZ v3,vector3XYZ v3') of
+                  ((a,b,c),(d,e,f)) -> vector3 (b*f-c*e) (c*d-a*f) (a*e-b*d)
+
 data OutputEvent
   = QuitG
   deriving (Show, Eq)
 
-newtype ObjectState = ObjectState (Vector3 Float)
+data ObjectState = ObjectState {pos::Vector3 Float, direct :: Vector3 Float}
+newtype CursorOffset = CursorOffset (Float,Float)
 
+toFPSVec v3 = case vector3XYZ v3 of
+                (x,y,z) -> vector3 x 0 z
 
-sig :: Y.SF [InputEvent] (Float, (Maybe OutputEvent, ObjectState))
-sig =
-  (Y.localTime Y.>>> Y.arr double2Float)  Y.&&&
-  Y.arr (\events -> if any (==QuitP) events then Just QuitG else Nothing) Y.&&&
-  (Y.arr ((\v -> if (v==Y.zeroVector) then v else cameraSpeed Y.*^ Y.normalize v) . foldr f (vector3 0 0 0)) Y.>>> Y.integral Y.>>> Y.arr ObjectState)
-  where e2v :: InputEvent -> Vector3 Float
-        e2v BackD = vector3 0 0 1
-        e2v FrontD = vector3 0 0 (-1)
-        e2v LeftD = vector3 (-1) 0 0
-        e2v RightD = vector3 1 0 0
-        e2v _ = vector3 0 0 0
+e2v :: Vector3 Float -> Vector3 Float -> InputEvent -> Vector3 Float
+e2v front right gi =
+  case gi of
+    BackD -> Y.negateVector front
+    FrontD -> front
+    LeftD -> Y.negateVector right
+    RightD -> right    
+    _ -> Y.zeroVector
+
+sig :: Y.SF (CursorOffset,[InputEvent]) (Float, Maybe OutputEvent, ObjectState)
+sig = proc ((CursorOffset (xOff,yOff)),gis) -> do
+    maybeQuit <- quitArr -< gis
+    yaw <- mouseArr -< xOff
+    pitch <- mouseArr -< yOff
+    let cameraFront = Y.normalize $ vector3 ((cos pitch) * (cos yaw)) (sin pitch) ((cos pitch)* (sin yaw))
+        cameraRight = Y.normalize $ crossV cameraFront cameraUp
+        pe2v = e2v cameraFront cameraRight
         f :: InputEvent -> Vector3 Float -> Vector3 Float
-        f e acc = acc Y.^+^ e2v e
+        f e acc = acc Y.^+^ pe2v e
+        moveDirection = let v = foldr f (vector3 0 0 0) gis
+                        in if v == Y.zeroVector
+                              then v
+                              else Y.normalize v
+    position <- Y.integral -< cameraSpeed Y.*^ moveDirection
+    angle <- Y.localTime -< ()
+    Y.returnA -< (double2Float angle, maybeQuit, ObjectState {pos = position, direct = cameraFront})
+  where quitArr = Y.arr $ \events -> if any (==QuitP) events then Just QuitG else Nothing
+        mouseArr = Y.arr (*mouseSensitivity) Y.>>> Y.integral
+        boundPitch pitch
+         | pitch > pi/2-0.1 = pi/2-0.1
+         | pitch < -pi/2+0.1 = -pi/2 + 0.1
+         | otherwise = pitch
+        cameraUp = vector3 0 1 0
+        
 
+mouseSensitivity :: Float          
+mouseSensitivity = 0.5
 
 
 cubePositions :: [V3 GLfloat]
@@ -95,7 +127,14 @@ scancodeToInputEvent ScancodeS = BackD
 scancodeToInputEvent ScancodeA = LeftD
 scancodeToInputEvent ScancodeD = RightD
 
-sense timeRef _ = do
+sense mouseRef timeRef _ = do
+  P (V2 x y) <- getRelativeMouseLocation
+  -- P (V2 xOld yOld) <- readIORef mouseRef
+  -- let xOff = fromIntegral x - fromIntegral xOld
+  --     yOff = fromIntegral yOld - fromIntegral y
+  -- putStrLn . show $ (xOff,yOff)
+  writeIORef mouseRef (P (V2 x y))
+  -- warpMouse WarpCurrentFocus (P (V2 (screenWidth/2) (screenHeight/2) ))
   now <- getCurrentTime
   lastTime <- readIORef timeRef
   writeIORef timeRef now
@@ -103,12 +142,12 @@ sense timeRef _ = do
   let dt = realToFrac $ now `diffUTCTime` lastTime
   keyF <-getKeyboardState
   let events = (if quit then [QuitP] else []) ++ (fmap scancodeToInputEvent . filter keyF $ [ScancodeW, ScancodeS, ScancodeA, ScancodeD])
-  pure (dt,Just events)
+  pure (dt,Just (CursorOffset (fromIntegral x ,fromIntegral (-y)),events))
 
 
 
-initialize :: IO [InputEvent]
-initialize = pure []
+initialize :: IO (CursorOffset,[InputEvent])
+initialize = pure (curry CursorOffset 0 0,[])
 
 newtype CameraState = CameraState (V3 GLfloat)
 
@@ -116,12 +155,12 @@ toV3 :: (RealFloat a) => Vector3 a -> V3 a
 toV3 v = let (x,y,z) = vector3XYZ v
          in V3 x y z
 
-actuate :: UniformLocation -> Window -> Bool -> (Float, (Maybe OutputEvent, ObjectState)) -> IO Bool
-actuate loc window _ (t, (oe, ObjectState pos)) =
+actuate :: UniformLocation -> Window -> Bool -> (Float, Maybe OutputEvent, ObjectState) -> IO Bool
+actuate loc window _ (t, oe, ObjectState {pos = position, direct = direction}) =
   if oe == Just QuitG
     then pure True
-    else clear [ColorBuffer, DepthBuffer] *>         
-         drawCubes (view (toV3 pos) (V3 0 0 (-1)) (V3 0 1 0)) t loc *>
+    else clear [ColorBuffer, DepthBuffer] *>
+         drawCubes (lookAt (toV3 position) (toV3 position + toV3 direction) (V3 0 1 0) ) t loc *>
          glSwapWindow window *>
          (traverse_ (putStrLn . show) <$> (get errors)) *>
          pure False
@@ -182,10 +221,8 @@ translationM x y z =
 
 
 cameraSpeed :: GLfloat
-cameraSpeed = 2.5
+cameraSpeed = 10
 
-cameraFront :: V3 GLfloat
-cameraFront = V3 0 0 (-1)
 
 cameraUp :: V3 GLfloat
 cameraUp = V3 0 1 0
@@ -282,10 +319,13 @@ createTextureFromFile filePath = do
 
 glConfig = defaultOpenGL {glProfile = profile, glMultisampleSamples = 8}
 
+screenWidth = 1024
+screenHeight = 768
+
 windowConfig = defaultWindow
   {windowOpenGL = Just glConfig,
    windowInputGrabbed = True,
-   windowInitialSize = V2 1024 768
+   windowInitialSize = V2 screenWidth screenHeight
   }
 
 initializeSDL :: IO Window
@@ -363,4 +403,5 @@ main
   -- Set clearColor to #66ccff
   clearColor $= Color4 0.4 0.8 1.0 1.0
   timeRef <- newIORef =<< getCurrentTime
-  Y.reactimate Main.initialize (sense timeRef) (actuate loc2 window) sig
+  mouseRef <- newIORef =<< getRelativeMouseLocation
+  Y.reactimate Main.initialize (sense mouseRef timeRef) (actuate loc2 window) sig
