@@ -25,27 +25,46 @@ import qualified FRP.Yampa as Y
 import Foreign.Ptr
 import Foreign.Storable
 import GHC.Float
-import Graphics.Rendering.OpenGL hiding (perspective)
-import SDL hiding(perspective,clear)
+import Graphics.Rendering.OpenGL hiding (perspective,lookAt,Vector3,Front,Back,Left,Right,normalize)
+import SDL hiding(perspective,clear,normalize)
 import System.IO
 import Codec.Picture.Extra
 import Linear.Quaternion
 import Linear.Matrix
 import Linear.Projection
-
+import FRP.Yampa.Vector3
 
 profile :: Profile
 profile = Core Normal 3 3
 
 data InputEvent
-  = Quit
-  | Cont
+  = QuitP
+  | FrontD
+  | BackD
+  | LeftD
+  | RightD
   deriving (Show, Eq)
 
-sig :: Y.SF InputEvent (Float, InputEvent)
+data OutputEvent
+  = QuitG
+  deriving (Show, Eq)
+
+newtype ObjectState = ObjectState (Vector3 Float)
+
+
+sig :: Y.SF [InputEvent] (Float, (Maybe OutputEvent, ObjectState))
 sig =
   (Y.localTime Y.>>> Y.arr double2Float)  Y.&&&
-  Y.identity
+  Y.arr (\events -> if any (==QuitP) events then Just QuitG else Nothing) Y.&&&
+  (Y.arr ((\v -> if (v==Y.zeroVector) then v else cameraSpeed Y.*^ Y.normalize v) . foldr f (vector3 0 0 0)) Y.>>> Y.integral Y.>>> Y.arr ObjectState)
+  where e2v :: InputEvent -> Vector3 Float
+        e2v BackD = vector3 0 0 1
+        e2v FrontD = vector3 0 0 (-1)
+        e2v LeftD = vector3 (-1) 0 0
+        e2v RightD = vector3 1 0 0
+        e2v _ = vector3 0 0 0
+        f :: InputEvent -> Vector3 Float -> Vector3 Float
+        f e acc = acc Y.^+^ e2v e
 
 
 
@@ -65,33 +84,44 @@ cubePositions = fmap (\(x,y,z) -> V3 x y z) [
 
 angleOffsets = scanl (+) 0 [pi/9 ..]
 
-drawCubes :: GLfloat -> UniformLocation -> IO ()
-drawCubes angle loc = traverse_ draw (zip cubePositions angleOffsets)
+drawCubes :: M44 GLfloat -> GLfloat -> UniformLocation -> IO ()
+drawCubes view angle loc = traverse_ draw (zip cubePositions angleOffsets)
   where draw (t,aOffset) = do
-          (toMatrix (proj!*!view!*!(model (angle+aOffset) t)) :: IO (GLmatrix GLfloat))>>= (uniform loc $=)
+          (toMatrix (proj!*!view !*!(model (angle+aOffset) t)) :: IO (GLmatrix GLfloat))>>= (uniform loc $=)
           drawArrays Triangles 0 36
+
+scancodeToInputEvent ScancodeW = FrontD
+scancodeToInputEvent ScancodeS = BackD
+scancodeToInputEvent ScancodeA = LeftD
+scancodeToInputEvent ScancodeD = RightD
 
 sense timeRef _ = do
   now <- getCurrentTime
   lastTime <- readIORef timeRef
   writeIORef timeRef now
   quit <- pure . any ((==) <$> eventPayload <*> pure QuitEvent) =<< pollEvents
-  let dt = now `diffUTCTime` lastTime
-  pure (,) <*> pure (realToFrac dt) <*>
-    pure
-      (if quit
-         then Just Quit
-         else Just Cont)
+  let dt = realToFrac $ now `diffUTCTime` lastTime
+  keyF <-getKeyboardState
+  let events = (if quit then [QuitP] else []) ++ (fmap scancodeToInputEvent . filter keyF $ [ScancodeW, ScancodeS, ScancodeA, ScancodeD])
+  pure (dt,Just events)
 
-initialize :: IO InputEvent
-initialize = pure Cont
 
-actuate :: UniformLocation -> Window -> Bool -> (Float, InputEvent) -> IO Bool
-actuate loc window _ (t, s) =
-  if s == Quit
+
+initialize :: IO [InputEvent]
+initialize = pure []
+
+newtype CameraState = CameraState (V3 GLfloat)
+
+toV3 :: (RealFloat a) => Vector3 a -> V3 a
+toV3 v = let (x,y,z) = vector3XYZ v
+         in V3 x y z
+
+actuate :: UniformLocation -> Window -> Bool -> (Float, (Maybe OutputEvent, ObjectState)) -> IO Bool
+actuate loc window _ (t, (oe, ObjectState pos)) =
+  if oe == Just QuitG
     then pure True
-    else clear [ColorBuffer, DepthBuffer] *>
-         drawCubes t loc *>
+    else clear [ColorBuffer, DepthBuffer] *>         
+         drawCubes (view (toV3 pos) (V3 0 0 (-1)) (V3 0 1 0)) t loc *>
          glSwapWindow window *>
          (traverse_ (putStrLn . show) <$> (get errors)) *>
          pure False
@@ -150,8 +180,19 @@ translationM :: (Num a) => a -> a -> a -> M44 a
 translationM x y z =
   V4 (V4 1 0 0 x) (V4 0 1 0 y) (V4 0 0 1 z) (V4 0 0 0 1)
 
-view :: M44 GLfloat
-view = translationM 0 0 (-3)
+
+cameraSpeed :: GLfloat
+cameraSpeed = 2.5
+
+cameraFront :: V3 GLfloat
+cameraFront = V3 0 0 (-1)
+
+cameraUp :: V3 GLfloat
+cameraUp = V3 0 1 0
+
+view :: V3 GLfloat -> V3 GLfloat -> V3 GLfloat -> M44 GLfloat
+view pos front up = lookAt pos (pos + front) up
+
 
 model :: GLfloat -> V3 GLfloat -> M44 GLfloat
 model angle t = let r = axisAngle (V3 0.5 1 0) angle
@@ -266,8 +307,8 @@ main
   -- Enable depth buffer
   depthFunc $= Just Less
   -- Load shaders
-  vs <- loadShaderFromFile VertexShader "coordinateSystemDepth.vert"
-  fs <- loadShaderFromFile FragmentShader "coordinateSystemDepth.frag"
+  vs <- loadShaderFromFile VertexShader "cameraKeyboardDt.vert"
+  fs <- loadShaderFromFile FragmentShader "cameraKeyboardDt.frag"
   program <- createProgramWith [vs, fs]
   deleteObjectName vs
   deleteObjectName fs

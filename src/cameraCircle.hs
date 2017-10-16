@@ -25,7 +25,7 @@ import qualified FRP.Yampa as Y
 import Foreign.Ptr
 import Foreign.Storable
 import GHC.Float
-import Graphics.Rendering.OpenGL hiding (perspective)
+import Graphics.Rendering.OpenGL hiding (perspective,lookAt)
 import SDL hiding(perspective,clear)
 import System.IO
 import Codec.Picture.Extra
@@ -65,10 +65,10 @@ cubePositions = fmap (\(x,y,z) -> V3 x y z) [
 
 angleOffsets = scanl (+) 0 [pi/9 ..]
 
-drawCubes :: GLfloat -> UniformLocation -> IO ()
-drawCubes angle loc = traverse_ draw (zip cubePositions angleOffsets)
+drawCubes :: M44 GLfloat -> GLfloat -> UniformLocation -> IO ()
+drawCubes view angle loc = traverse_ draw (zip cubePositions angleOffsets)
   where draw (t,aOffset) = do
-          (toMatrix (proj!*!view!*!(model (angle+aOffset) t)) :: IO (GLmatrix GLfloat))>>= (uniform loc $=)
+          (toMatrix (proj!*!view !*!(model (aOffset+angle) t)) :: IO (GLmatrix GLfloat))>>= (uniform loc $=)
           drawArrays Triangles 0 36
 
 sense timeRef _ = do
@@ -91,7 +91,7 @@ actuate loc window _ (t, s) =
   if s == Quit
     then pure True
     else clear [ColorBuffer, DepthBuffer] *>
-         drawCubes t loc *>
+         drawCubes (view t) t loc *>
          glSwapWindow window *>
          (traverse_ (putStrLn . show) <$> (get errors)) *>
          pure False
@@ -150,8 +150,12 @@ translationM :: (Num a) => a -> a -> a -> M44 a
 translationM x y z =
   V4 (V4 1 0 0 x) (V4 0 1 0 y) (V4 0 0 1 z) (V4 0 0 0 1)
 
-view :: M44 GLfloat
-view = translationM 0 0 (-3)
+view :: GLfloat -> M44 GLfloat
+view t  = let r = 10
+              camX = sin t * r
+              camZ = cos t * r
+  in lookAt (V3 camX 0 camZ) (V3 0 0 0) (V3 0 1 0)
+
 
 model :: GLfloat -> V3 GLfloat -> M44 GLfloat
 model angle t = let r = axisAngle (V3 0.5 1 0) angle
