@@ -14,6 +14,7 @@ import Codec.Picture
 import Codec.Picture.Types
 import Control.Applicative
 import Control.Monad
+import Control.Lens
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Function
@@ -25,7 +26,7 @@ import qualified FRP.Yampa as Y
 import Foreign.Ptr
 import Foreign.Storable
 import GHC.Float
-import Graphics.Rendering.OpenGL hiding (perspective,lookAt,Vector3,Front,Back,Left,Right,normalize)
+import Graphics.Rendering.OpenGL hiding (perspective,lookAt,Vector3,Front,Back,Left,Right,normalize,scale)
 import SDL hiding(perspective,clear,normalize)
 import SDL.Input.Mouse
 import System.IO
@@ -128,15 +129,34 @@ toV3 :: (RealFloat a) => Vector3 a -> V3 a
 toV3 v = let (x,y,z) = vector3XYZ v
          in V3 x y z
 
-actuate :: UniformLocation -> Window -> Bool -> (Float, Maybe OutputEvent, ObjectState) -> IO Bool
-actuate loc window _ (t, oe, ObjectState {pos = position, direct = direction}) =
+
+modelLight :: M44 GLfloat
+modelLight = set translation (V3 1.2 1 2) identity !*! scale 0.2 0.2 0.2 
+
+modelCube :: M44 GLfloat
+modelCube = identity
+
+actuate :: VertexArrayObject -> VertexArrayObject -> Program-> Program ->UniformLocation -> UniformLocation -> Window -> Bool -> (Float, Maybe OutputEvent, ObjectState) -> IO Bool
+actuate cubeVao lightVao cubeProgram lightProgram locC locL window _ (t, oe, ObjectState {pos = position, direct = direction}) =
   if oe == Just QuitG
     then pure True
-    else clear [ColorBuffer, DepthBuffer] *>
+    else do
+    let v = viewM (toV3 position) (toV3 direction) (V3 0 1 0)
+    clear [ColorBuffer, DepthBuffer] 
+    currentProgram $= Just cubeProgram
+    (uniform locC $=) =<< (toMatrix $ proj!*!v!*!modelCube :: IO (GLmatrix GLfloat))
+    bindVertexArrayObject $= Just cubeVao
+    currentProgram $= Just cubeProgram
+    drawArrays Triangles 0 36
 
-         glSwapWindow window *>
-         (traverse_ (putStrLn . show) <$> (get errors)) *>
-         pure False
+    currentProgram $= Just lightProgram
+    (uniform locL $=) =<< (toMatrix $ proj!*!v!*!modelLight :: IO (GLmatrix GLfloat))
+    bindVertexArrayObject $= Just lightVao
+    drawArrays Triangles 0 36
+
+    glSwapWindow window 
+    (traverse_ (putStrLn . show) <$> (get errors)) 
+    pure False
 
 vertices :: V.Vector GLfloat
 vertices = V.fromList [
@@ -188,9 +208,7 @@ scale :: (Num a) => a -> a-> a -> M44 a
 scale sx sy sz =
   V4 (V4 sx 0 0 0) (V4 0 sy 0 0) (V4 0 0 sz 0) (V4 0 0 0 1)
 
-translationM :: (Num a) => a -> a -> a -> M44 a
-translationM x y z =
-  V4 (V4 1 0 0 x) (V4 0 1 0 y) (V4 0 0 1 z) (V4 0 0 0 1)
+
 
 
 cameraSpeed :: GLfloat
@@ -200,13 +218,10 @@ cameraSpeed = 10
 cameraUp :: V3 GLfloat
 cameraUp = V3 0 1 0
 
-view :: V3 GLfloat -> V3 GLfloat -> V3 GLfloat -> M44 GLfloat
-view pos front up = lookAt pos (pos + front) up
+viewM :: V3 GLfloat -> V3 GLfloat -> V3 GLfloat -> M44 GLfloat
+viewM pos front up = lookAt pos (pos + front) up
 
 
-model :: GLfloat -> V3 GLfloat -> M44 GLfloat
-model angle t = let r = axisAngle (V3 0.5 1 0) angle
-                   in mkTransformation r t
 
 
 
@@ -363,10 +378,14 @@ main
   -- Load shaders
   vs <- loadShaderFromFile VertexShader "lightingScene.vert"
   fs <- loadShaderFromFile FragmentShader "lightingScene.frag"
-  lfs <- loadShaderFromFile FragmentShader ""
+  lfs <- loadShaderFromFile FragmentShader "lightingSceneLight.frag"
   cubeProgram <- createProgramWith [vs, fs]
+  lightProgram <- createProgramWith [vs, lfs]
+  get (programInfoLog lightProgram) >>= putStrLn
+  get (programInfoLog cubeProgram) >>= putStrLn
   deleteObjectName vs
   deleteObjectName fs
+  deleteObjectName lfs
   currentProgram $= Just cubeProgram
 
 
@@ -374,6 +393,7 @@ main
   loc0 <- get . uniformLocation cubeProgram $ "lightColor"
   loc1 <- get . uniformLocation cubeProgram $ "objectColor"
   loc2 <- get . uniformLocation cubeProgram $ "pvm"
+  loc3 <- get . uniformLocation lightProgram $ "pvm"
 
   uniform loc0 $= (Color3 1 1 1 :: Color3 GLfloat)
   uniform loc1 $= (Color3 1 0.5 0.31 :: Color3 GLfloat)
@@ -383,4 +403,4 @@ main
   -- Set clearColor to #66ccff
   clearColor $= Color4 0.4 0.8 1.0 1.0
   timeRef <- newIORef =<< getCurrentTime
-  Y.reactimate Main.initialize (sense timeRef) (actuate loc2 window) sig
+  Y.reactimate Main.initialize (sense timeRef) (actuate cubevao lightvao cubeProgram lightProgram loc2 loc3 window) sig
