@@ -268,3 +268,41 @@ executable specular
                        JuicyPixels-extra,
                        linear,
                        lens
+
+
+executable material
+  hs-source-dirs:      src
+  main-is:             material.hs
+  ghc-options:         -dynamic
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear,
+                       lens
+executable lightingMaps
+  hs-source-dirs:      src
+  main-is:             lightingMaps.hs
+  ghc-options:         -dynamic
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear,
+                       lens                       
