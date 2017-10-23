@@ -11,7 +11,7 @@ uniform mat4 pvm;
 
 void main()
 {
-  Normal = aNormal;
+  Normal = vec3(model*vec4(aNormal,0));
   gl_Position = pvm * vec4(aPos, 1.0);
   FragPos = vec3(model*vec4(aPos,1));
   TexCoords = aTexCoords;
