@@ -5,5 +5,5 @@ out vec3 Pos;
 
 void main()
 {
-  gl_Position = pvm*aPos;
+  gl_Position = pvm*vec4(aPos,1.0);
 }

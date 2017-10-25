@@ -177,8 +177,9 @@ actuate cubeVao lightVao cubeProgram lightProgram uM uPVM uLPVM uViewPos  window
     
     currentProgram $= Just cubeProgram
     uViewPos $ Vector3 x y z
-    drawCubes v t uPVM uM
     bindVertexArrayObject $= Just cubeVao
+    drawCubes v t uPVM uM
+    
 
     currentProgram $= Just lightProgram
     uLPVM =<< toMatrix ( proj!*!v!*!modelLight)
@@ -350,6 +351,7 @@ windowConfig = defaultWindow
 initializeSDL :: IO Window
 initializeSDL = do
   initializeAll
+  setMouseLocationMode RelativeLocation
   createWindow "lightingMaps" windowConfig
 
 
@@ -434,6 +436,7 @@ main
   cubeProgram <- createProgramWith [vs, fs]
   lightProgram <- createProgramWith [lvs, lfs]
   get (programInfoLog cubeProgram) >>= putStrLn
+  get (programInfoLog lightProgram) >>= putStrLn
   deleteObjectName vs
   deleteObjectName fs
   currentProgram $= Just cubeProgram
@@ -460,6 +463,8 @@ main
   uLConstant <- uniformFunc cubeProgram "light.constant" :: IO (UniformFunc GLfloat)
   uLLinear <- uniformFunc cubeProgram "light.linear" :: IO (UniformFunc GLfloat)
   uLQuadratic <- uniformFunc cubeProgram "light.quadratic" :: IO (UniformFunc GLfloat)
+  uLPosition <- uniformFunc cubeProgram "light.position" :: IO (UniformFunc (Vector3 GLfloat))
+
 
 
   -- Set static uniforms
@@ -470,9 +475,11 @@ main
   activeTexture  $= TextureUnit 1
   textureBinding Texture2D $= Just tex2
   uMSpecular $ TextureUnit 1
+  uLAmbient $ Color3 0.2 0.2 0.2
   uLConstant 1
   uLLinear 0.09
   uLQuadratic 0.032
+  uLPosition (Vector3 1.2 1 2)
 
 
   -- Set clearColor to something darker for better contrast

@@ -43,5 +43,10 @@ void main()
   float spec = pow(max(dot(viewDir,reflectDir),0),material.shininess);
   vec3 specular = vec3(texture(material.specular,TexCoords)) * spec * light.specular;
 
-  FragColor = vec4(light.ambient*ambient+light.diffuse*diffuse+light.specular*specular, 1.0);
+  // attenuation
+  float distance = length(light.position-FragPos);
+  float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic*(distance*distance));
+  
+  FragColor = vec4((light.ambient*ambient+light.diffuse*diffuse+light.specular*specular)*attenuation, 1.0);
+
 }
