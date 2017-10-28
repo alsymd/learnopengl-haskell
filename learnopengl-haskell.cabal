@@ -344,4 +344,43 @@ executable pointLight
                        JuicyPixels,
                        JuicyPixels-extra,
                        linear,
-                       lens                       
+                       lens
+
+executable spotLight
+  hs-source-dirs:      src
+  main-is:             spotLight.hs
+  ghc-options:         -dynamic
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear,
+                       lens
+
+
+executable multipleLights
+  hs-source-dirs:      src
+  main-is:             multipleLights.hs
+  ghc-options:         -dynamic
+  default-language:    Haskell2010
+  build-depends:       base >= 4.7 && < 5,
+                       sdl2,
+                       OpenGL,
+                       StateVar,
+                       vector,
+                       ObjectName,
+                       bytestring,
+                       Yampa,
+                       time,
+                       JuicyPixels,
+                       JuicyPixels-extra,
+                       linear,
+                       lens                                                                     
